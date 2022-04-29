@@ -12,6 +12,27 @@ contract FlightSuretyData {
     address private contractOwner;                                      // Account used to deploy contract
     bool private operational = true;                                    // Blocks all state changes throughout the contract if false
 
+    struct Airline {
+        bool isRegistered;
+        bool hasContributed;
+        uint funds;
+        string airlineName;
+        address airlineAddress;
+    }
+
+    mapping(address => Airline) private registeredAirlines;
+    uint private registeredAirlineCounter = 0;
+
+    struct Insuree {
+        address insureeAddress;
+        uint fundsToWithdraw;
+        
+        mapping(bytes32 => uint) flightInsuranceAmount;
+    }
+
+    mapping(address => Insuree) private insurees;
+
+
     /********************************************************************************************/
     /*                                       EVENT DEFINITIONS                                  */
     /********************************************************************************************/
@@ -23,10 +44,21 @@ contract FlightSuretyData {
     */
     constructor
                                 (
+                                    address _firstAirline,
+                                    string _airlineName
                                 ) 
                                 public 
     {
         contractOwner = msg.sender;
+        // register first airline on contract deployment.
+        registeredAirlines[_firstAirline] = Airline({
+            isRegistered: true, 
+            hasContributed: false,
+            funds: 0,
+            airlineName: _airlineName,
+            airlineAddress: _firstAirline
+        });
+        registeredAirlineCounter = 1;
     }
 
     /********************************************************************************************/
@@ -53,6 +85,12 @@ contract FlightSuretyData {
     modifier requireContractOwner()
     {
         require(msg.sender == contractOwner, "Caller is not contract owner");
+        _;
+    }
+
+    modifier checkAirlineExists(address airlineAddress)
+    {
+        require(registeredAirlines[airlineAddress].isRegistered == true, "Airline has not been registered yet");
         _;
     }
 
@@ -89,6 +127,46 @@ contract FlightSuretyData {
         operational = mode;
     }
 
+    function checkAirlineRegistered
+                                (
+                                    address _airlineAddress
+                                )
+                                external
+                                returns (bool)
+    {
+        return registeredAirlines[_airlineAddress].isRegistered;
+    }
+
+    function checkAirlineContributed
+                                (
+                                    address _airlineAddress
+                                )
+                                external
+                                returns (bool)
+    {
+        return registeredAirlines[_airlineAddress].hasContributed;
+    }
+
+    function getRegisteredAirlineCount
+                                    (
+                                    
+                                    )
+                                    external
+                                    returns (uint)
+    {
+        return registeredAirlineCounter;
+    }
+
+    function getInsuree
+                                    (
+                                       address insureeAddress 
+                                    )
+                                    external
+                                    returns (address)
+    {
+        return insurees[insureeAddress].insureeAddress;
+    }
+
     /********************************************************************************************/
     /*                                     SMART CONTRACT FUNCTIONS                             */
     /********************************************************************************************/
@@ -99,11 +177,35 @@ contract FlightSuretyData {
     *
     */   
     function registerAirline
-                            (   
+                            (  
+                                address _airlineAddress,
+                                string _airlineName
                             )
                             external
-                            pure
     {
+        // register new airline.
+        registeredAirlines[_airlineAddress] = Airline({
+                isRegistered: true, 
+                hasContributed: false,
+                funds: 0,
+                airlineName: _airlineName,
+                airlineAddress: _airlineAddress
+        });
+        registeredAirlineCounter.add(1);
+    }
+
+    function fundAirline
+                                        (
+                                            address _airlineAddress
+                                        )
+                                        checkAirlineExists(_airlineAddress)
+                                        external
+                                        payable
+    {
+        // maybe check here if airline exists in mapping (require statement)
+        require(msg.value >= 10 ether, "Airline did not contribute enough to participate");
+        registeredAirlines[_airlineAddress].hasContributed = true;
+        registeredAirlines[_airlineAddress].funds.add(msg.value);
     }
 
 
@@ -111,24 +213,58 @@ contract FlightSuretyData {
     * @dev Buy insurance for a flight
     *
     */   
-    function buy
-                            (                             
+    function buyInsurance
+                            (  
+                                bytes32 flightKey,
+                                address airlineAddress,
+                                address insureeAddress                           
                             )
                             external
                             payable
     {
+        // if insuree exists update airline funds and link flight key with amount for insuree
+        registeredAirlines[airlineAddress].funds.add(msg.value);
+        insurees[insureeAddress].flightInsuranceAmount[flightKey] = msg.value;
+    }
 
+    function buyInsuranceAndCreateInsuree
+                            (  
+                                bytes32 flightKey,
+                                address airlineAddress,
+                                address insureeAddress                           
+                            )
+                            external
+                            payable
+    {
+        // create insuree here link flight key with amount
+        // and update airline funds with msg.value
+        registeredAirlines[airlineAddress].funds.add(msg.value);
+
+        newInsuree = Insuree({
+            insureeAddress: insureeAddress,
+            fundsToWithdraw: 0,
+        });
+        newInsuree.flightInsuranceAmount[flightKey] = msg.value;
+        insurees[insureeAddress] = newInsuree;
     }
 
     /**
      *  @dev Credits payouts to insurees
     */
-    function creditInsurees
+    function creditInsuree
                                 (
+                                    bytes32 flightKey,
+                                    address airlineAddress,
+                                    address insureeAddress
                                 )
                                 external
-                                pure
+                                
     {
+        Insuree insuree = insurees[insureeAddress];
+        uint insurancePayout = insurees[insureeAddress].flightInsuranceAmount[flightKey].mul(1.5);
+        Airline airline = registeredAirlines[airlineAddress];
+        airline.funds.sub(insurancePayout);
+        insuree.fundsToWithdraw.add(insurancePayout);
     }
     
 
@@ -136,25 +272,20 @@ contract FlightSuretyData {
      *  @dev Transfers eligible payout funds to insuree
      *
     */
-    function pay
+    function withdrawInsureeAccountBalance
                             (
+                                address insureeAddress
                             )
-                            external
-                            pure
+                            external                 
     {
-    }
-
-   /**
-    * @dev Initial funding for the insurance. Unless there are too many delayed flights
-    *      resulting in insurance payouts, the contract should be self-sustaining
-    *
-    */   
-    function fund
-                            (   
-                            )
-                            public
-                            payable
-    {
+        // check that the user has an account balance
+        Insuree insuree = insurees[insureeAddress];
+        uint fundsToWithdraw = insuree.fundsToWithdraw;
+        require(fundsToWithdraw > 0, "Insuree has no funds to withdraw");
+        // debit their account
+        insuree.fundsToWithdraw = 0;
+        // then make transfer
+        insureeAddress.transfer(fundsToWithdraw.mul(1 wei));
     }
 
     function getFlightKey
@@ -178,7 +309,7 @@ contract FlightSuretyData {
                             external 
                             payable 
     {
-        fund();
+        // create a fund function that funds the contract?
     }
 
 
