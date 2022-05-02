@@ -40,12 +40,13 @@ contract FlightSuretyApp {
         uint256 timeOfArrival; 
         uint8 statusCode;
         address[] insurees;
-        bool hasPaidOutInsurance;
+        bool hasPaidInsurance;
     }
     mapping(bytes32 => Flight) private flights;
 
     event InsurancePayoutAirlineAtFault(address airline, string flight, uint256 timestamp, uint8 status);
     event InsureeWithdrawsAccountBalance(address insuree);
+    event RegisterAirline(address airline);
 
     /********************************************************************************************/
     /*                                       FUNCTION MODIFIERS                                 */
@@ -112,7 +113,7 @@ contract FlightSuretyApp {
         operational = _status;
     }
 
-    function checkIfAirlineIsRegistered(address _airlineAddress) internal returns(bool)
+    function checkIfAirlineIsRegistered(address _airlineAddress) view returns(bool)
     {
         return flightSuretyData.checkAirlineRegistered(_airlineAddress);
     }
@@ -132,26 +133,24 @@ contract FlightSuretyApp {
                                 address _airlineAddress,
                                 string _airlineName 
                             )
-                            external
+                            public
                             requireIsOperational
                             returns(bool success, uint256 votes)
     {
         address callingAddress = msg.sender;
 
-       
         // make a call to get registered airline counter here too.
         uint registeredAirlineCounter = flightSuretyData.getRegisteredAirlineCount();
 
         require(checkIfAirlineIsRegistered(_airlineAddress) == false, "Airline has already been registered");
         require(checkIfAirlineIsRegistered(callingAddress), "Caller is not a registered airline");
+        require(flightSuretyData.checkAirlineContributed(callingAddress), "Airline has not made initial contribution");
 
+        bool successVar = false;
         // when counter is at or over 5 multiparty consensus is needed
         if(registeredAirlineCounter >= 4){
             // use multiparty consensus 50% of registered airlines must approve.
-            // mae sure airline has contributed before allowing them to vote.
-            require(flightSuretyData.checkAirlineContributed(callingAddress), "Airline has not made initial contribution");
             uint targetConsensus = registeredAirlineCounter / 2;
-
 
             // There should be a mapping address => address[]
             // address will be new airline array will contain airlines that voted
@@ -175,25 +174,25 @@ contract FlightSuretyApp {
                 //consensus has been reached we can now register airline
                 flightSuretyData.registerAirline(_airlineAddress, _airlineName);
             }
+            successVar = true;
 
         } else {
             // There are less than 4 airlines so add new airline
             flightSuretyData.registerAirline(_airlineAddress, _airlineName);
+            successVar = true;
         }
 
         votes = multiCalls[_airlineAddress].length;
-        return (true, votes);
+        return (successVar, votes);
     }
 
     function fundAirline
                                     (
 
                                     )
-                                    public
+                                    external
                                     payable
-                                    requireIsOperational
     {
-        // flightSuretyData.fundAirline{value: msg.value}(msg.sender);
         flightSuretyData.fundAirline.value(msg.value)(msg.sender);
     }
 
@@ -206,14 +205,15 @@ contract FlightSuretyApp {
                                     string flight,
                                     uint256 timeOfDeparture,
                                     uint256 timeOfArrival,
-                                    uint256 timestamp,
+                                    uint256 timestamp
                                 )
                                 public
+                                payable
                                 requireIsOperational
     {
         require(msg.value <= 1 ether, "Cannot purchase insurance above 1 eth");
         require(checkIfAirlineIsRegistered(airlineAddress), "Airline is not registered");
-        bytes32 flightKey = getFlightKey(airlineAddress, flight, timeStamp);
+        bytes32 flightKey = getFlightKey(airlineAddress, flight, timestamp);
         // if flight exists then add another user to the insurance array on the flight
         if(flights[flightKey].airlineAddress == airlineAddress){
             // flight exists add insuree to array
@@ -222,11 +222,12 @@ contract FlightSuretyApp {
             // else create flight and add user to the array
             address[] insurees;
             insurees.push(msg.sender);
+            
             flights[flightKey] = Flight({
                 airlineName: airlineName,
                 airlineAddress: airlineAddress,
                 flight: flight,
-                timestamp: timeStamp,
+                timestamp: timestamp,
                 timeOfDeparture: timeOfDeparture,
                 timeOfArrival: timeOfArrival,
                 statusCode: 0,
@@ -235,7 +236,7 @@ contract FlightSuretyApp {
             });
         }
 
-        address insureeAddress flightSurety.getInsuree(msg.sender);
+        address insureeAddress = flightSuretyData.getInsuree(msg.sender);
         if(msg.sender == insureeAddress){
             // insuree exists save data
             flightSuretyData.buyInsurance.value(msg.value)(flightKey, airlineAddress, msg.sender);
@@ -287,8 +288,8 @@ contract FlightSuretyApp {
         if(statusCode == STATUS_CODE_LATE_AIRLINE){
             // It's the airlines fault so provide insurance payout.
             // update insurees and airline with new account balances
-            address[] arrayOfInsurees = flightInfo.insurees;
-            require(!flightInfo.hasPaidOutInsurance, "The insurance for this flight has already been paid out");
+            address[] memory arrayOfInsurees = flightInfo.insurees;
+            require(!flightInfo.hasPaidInsurance, "The insurance for this flight has already been paid out");
 
             // loop through insurees and pay them
             for(uint c=0; c<arrayOfInsurees.length; c++) {
@@ -298,7 +299,7 @@ contract FlightSuretyApp {
 
             flightInfo.hasPaidInsurance = true;
             // maybe emit an event detailing that there has been an insurance payout and user should check their account.
-            emit InsurancePayoutAirlineAtFault(airline, flight, timestamp, statusCode);
+            emit InsurancePayoutAirlineAtFault(airlineAddress, flight, timestamp, statusCode);
         } 
     }
 
@@ -519,13 +520,13 @@ contract FlightSuretyApp {
 //interface
 interface IFlightSuretyData {
   function registerAirline (address _airlineAddress, string _airlineName) external;
-  function buyInsurance (bytes32 flightKey, address airlineAddress, address insureeAddress) external;
-  function buyInsuranceAndCreateInsuree (bytes32 flightKey, address airlineAddress, address insureeAddress) external;
+  function buyInsurance (bytes32 flightKey, address airlineAddress, address insureeAddress) external payable;
+  function buyInsuranceAndCreateInsuree (bytes32 flightKey, address airlineAddress, address insureeAddress) external payable;
   function creditInsuree (bytes32 flightKey, address airlineAddress, address insureeAddress) external;
   function withdrawInsureeAccountBalance (address insureeAddress) external;
   function fundAirline (address _airlineAddress) external payable;
   function checkAirlineRegistered (address _airlineAddress) external returns(bool);
   function checkAirlineContributed (address _airlineAddress) external returns(bool);
   function getRegisteredAirlineCount () external returns(uint);
-  function getInsuree (address insureeAddress) external returns(address)
+  function getInsuree (address insureeAddress) external returns(address);
 }

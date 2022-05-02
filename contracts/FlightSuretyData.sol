@@ -12,6 +12,8 @@ contract FlightSuretyData {
     address private contractOwner;                                      // Account used to deploy contract
     bool private operational = true;                                    // Blocks all state changes throughout the contract if false
 
+    address private authorizedCaller;
+
     struct Airline {
         bool isRegistered;
         bool hasContributed;
@@ -25,9 +27,9 @@ contract FlightSuretyData {
 
     struct Insuree {
         address insureeAddress;
-        uint fundsToWithdraw;
+        uint256 fundsToWithdraw;
         
-        mapping(bytes32 => uint) flightInsuranceAmount;
+        mapping(bytes32 => uint256) flightInsuranceAmount;
     }
 
     mapping(address => Insuree) private insurees;
@@ -37,6 +39,7 @@ contract FlightSuretyData {
     /*                                       EVENT DEFINITIONS                                  */
     /********************************************************************************************/
 
+    event AirlineRegistered(address airline);
 
     /**
     * @dev Constructor
@@ -91,6 +94,12 @@ contract FlightSuretyData {
     modifier checkAirlineExists(address airlineAddress)
     {
         require(registeredAirlines[airlineAddress].isRegistered == true, "Airline has not been registered yet");
+        _;
+    }
+
+    modifier checkCallerAuthorized()
+    {
+        require(msg.sender == authorizedCaller, "Caller not authorized with this contract");
         _;
     }
 
@@ -167,6 +176,30 @@ contract FlightSuretyData {
         return insurees[insureeAddress].insureeAddress;
     }
 
+    function returnInsuranceAmount
+                                    (
+                                        address _insureeAddress,
+                                        address _airline,
+                                        string  _flight,
+                                        uint256 _timestamp
+                                    )
+                                    external
+                                    returns (uint256)
+    {
+        bytes32 flightKey = getFlightKey(_airline, _flight, _timestamp);
+        return insurees[_insureeAddress].flightInsuranceAmount[flightKey];
+    }
+
+    function authorizeCaller
+                            (
+                                address _authorizedCaller
+                            ) 
+                            public
+                            requireContractOwner 
+    {
+        authorizedCaller = _authorizedCaller;
+    }
+
     /********************************************************************************************/
     /*                                     SMART CONTRACT FUNCTIONS                             */
     /********************************************************************************************/
@@ -182,6 +215,9 @@ contract FlightSuretyData {
                                 string _airlineName
                             )
                             external
+                            checkCallerAuthorized
+                            requireIsOperational
+                           
     {
         // register new airline.
         registeredAirlines[_airlineAddress] = Airline({
@@ -192,6 +228,8 @@ contract FlightSuretyData {
                 airlineAddress: _airlineAddress
         });
         registeredAirlineCounter.add(1);
+
+        emit AirlineRegistered(_airlineAddress);
     }
 
     function fundAirline
@@ -201,6 +239,8 @@ contract FlightSuretyData {
                                         checkAirlineExists(_airlineAddress)
                                         external
                                         payable
+                                        requireIsOperational
+                                        checkCallerAuthorized
     {
         // maybe check here if airline exists in mapping (require statement)
         require(msg.value >= 10 ether, "Airline did not contribute enough to participate");
@@ -221,6 +261,8 @@ contract FlightSuretyData {
                             )
                             external
                             payable
+                            requireIsOperational
+                            checkCallerAuthorized
     {
         // if insuree exists update airline funds and link flight key with amount for insuree
         registeredAirlines[airlineAddress].funds.add(msg.value);
@@ -235,17 +277,16 @@ contract FlightSuretyData {
                             )
                             external
                             payable
+                            requireIsOperational
+                            checkCallerAuthorized
     {
         // create insuree here link flight key with amount
         // and update airline funds with msg.value
         registeredAirlines[airlineAddress].funds.add(msg.value);
 
-        newInsuree = Insuree({
-            insureeAddress: insureeAddress,
-            fundsToWithdraw: 0,
-        });
-        newInsuree.flightInsuranceAmount[flightKey] = msg.value;
-        insurees[insureeAddress] = newInsuree;
+        insurees[insureeAddress].insureeAddress = insureeAddress;
+        insurees[insureeAddress].fundsToWithdraw = 0;
+        insurees[insureeAddress].flightInsuranceAmount[flightKey] = msg.value;
     }
 
     /**
@@ -258,10 +299,12 @@ contract FlightSuretyData {
                                     address insureeAddress
                                 )
                                 external
+                                requireIsOperational
+                                checkCallerAuthorized
                                 
     {
         Insuree insuree = insurees[insureeAddress];
-        uint insurancePayout = insurees[insureeAddress].flightInsuranceAmount[flightKey].mul(1.5);
+        uint256 insurancePayout = insurees[insureeAddress].flightInsuranceAmount[flightKey] * 2;
         Airline airline = registeredAirlines[airlineAddress];
         airline.funds.sub(insurancePayout);
         insuree.fundsToWithdraw.add(insurancePayout);
@@ -276,7 +319,9 @@ contract FlightSuretyData {
                             (
                                 address insureeAddress
                             )
-                            external                 
+                            external
+                            requireIsOperational    
+                            checkCallerAuthorized         
     {
         // check that the user has an account balance
         Insuree insuree = insurees[insureeAddress];
@@ -285,7 +330,7 @@ contract FlightSuretyData {
         // debit their account
         insuree.fundsToWithdraw = 0;
         // then make transfer
-        insureeAddress.transfer(fundsToWithdraw.mul(1 wei));
+        insureeAddress.transfer(fundsToWithdraw);
     }
 
     function getFlightKey
@@ -305,12 +350,12 @@ contract FlightSuretyData {
     * @dev Fallback function for funding smart contract.
     *
     */
-    function() 
-                            external 
-                            payable 
-    {
-        // create a fund function that funds the contract?
-    }
+    // function() 
+    //                         external 
+    //                         payable 
+    // {
+    //     // create a fund function that funds the contract?
+    // }
 
 
 }
