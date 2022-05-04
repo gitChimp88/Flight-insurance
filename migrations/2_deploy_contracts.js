@@ -3,9 +3,8 @@ const FlightSuretyData = artifacts.require("FlightSuretyData");
 const fs = require("fs");
 
 module.exports = function (deployer) {
-  // below is just an arbitrary address, (for the first airline)
-  // but for production should be the address of an actual airline (user)
-  let firstAirline = "0xf17f52151EbEF6C7334FAD080c5704D77216b732";
+  // first airline should be first address from ganache
+  let firstAirline = "0xD2116d95f30E889F7D1e499AdE58ae604920BD4c";
   let airlineName = "Fake-jet";
 
   deployer.deploy(FlightSuretyData, firstAirline, airlineName).then(() => {

@@ -176,6 +176,16 @@ contract FlightSuretyData {
         return insurees[insureeAddress].insureeAddress;
     }
 
+    function getInsureeAccountBalance
+                                    (
+                                       address insureeAddress 
+                                    )
+                                    external
+                                    returns (uint256)
+    {
+        return insurees[insureeAddress].fundsToWithdraw;
+    }
+
     function returnInsuranceAmount
                                     (
                                         address _insureeAddress,
@@ -303,11 +313,9 @@ contract FlightSuretyData {
                                 checkCallerAuthorized
                                 
     {
-        Insuree insuree = insurees[insureeAddress];
         uint256 insurancePayout = insurees[insureeAddress].flightInsuranceAmount[flightKey] * 2;
-        Airline airline = registeredAirlines[airlineAddress];
-        airline.funds.sub(insurancePayout);
-        insuree.fundsToWithdraw.add(insurancePayout);
+        registeredAirlines[airlineAddress].funds.sub(insurancePayout);
+        insurees[insureeAddress].fundsToWithdraw.add(insurancePayout);
     }
     
 
@@ -325,7 +333,7 @@ contract FlightSuretyData {
     {
         // check that the user has an account balance
         Insuree insuree = insurees[insureeAddress];
-        uint fundsToWithdraw = insuree.fundsToWithdraw;
+        uint256 fundsToWithdraw = insuree.fundsToWithdraw;
         require(fundsToWithdraw > 0, "Insuree has no funds to withdraw");
         // debit their account
         insuree.fundsToWithdraw = 0;

@@ -44,9 +44,10 @@ contract FlightSuretyApp {
     }
     mapping(bytes32 => Flight) private flights;
 
-    event InsurancePayoutAirlineAtFault(address airline, string flight, uint256 timestamp, uint8 status);
+    event InsurancePayoutAirlineAtFault(address airline, string flight, uint256 timestamp, uint8 status, uint insureeAmount);
     event InsureeWithdrawsAccountBalance(address insuree);
     event RegisterAirline(address airline);
+    event InsurancePaidToPassenger(address airline, string flight, uint8 statusCode, address passenger);
 
     /********************************************************************************************/
     /*                                       FUNCTION MODIFIERS                                 */
@@ -210,9 +211,10 @@ contract FlightSuretyApp {
                                 public
                                 payable
                                 requireIsOperational
+                                returns(bool success)
     {
-        require(msg.value <= 1 ether, "Cannot purchase insurance above 1 eth");
-        require(checkIfAirlineIsRegistered(airlineAddress), "Airline is not registered");
+        require(msg.value == 1 ether, "Cannot purchase insurance above 1 eth");
+        require(checkIfAirlineIsRegistered(airlineAddress), "Airline is not registered yet");
         bytes32 flightKey = getFlightKey(airlineAddress, flight, timestamp);
         // if flight exists then add another user to the insurance array on the flight
         if(flights[flightKey].airlineAddress == airlineAddress){
@@ -220,20 +222,15 @@ contract FlightSuretyApp {
             flights[flightKey].insurees.push(msg.sender);
         } else {
             // else create flight and add user to the array
-            address[] insurees;
-            insurees.push(msg.sender);
-            
-            flights[flightKey] = Flight({
-                airlineName: airlineName,
-                airlineAddress: airlineAddress,
-                flight: flight,
-                timestamp: timestamp,
-                timeOfDeparture: timeOfDeparture,
-                timeOfArrival: timeOfArrival,
-                statusCode: 0,
-                insurees: insurees,
-                hasPaidInsurance: false
-            });
+            flights[flightKey].airlineName = airlineName;
+            flights[flightKey].airlineAddress = airlineAddress;
+            flights[flightKey].flight = flight;
+            flights[flightKey].timestamp = timestamp;
+            flights[flightKey].timeOfDeparture = timeOfDeparture;
+            flights[flightKey].timeOfArrival = timeOfArrival;
+            flights[flightKey].statusCode = 0;
+            flights[flightKey].insurees.push(msg.sender);
+            flights[flightKey].hasPaidInsurance = false;
         }
 
         address insureeAddress = flightSuretyData.getInsuree(msg.sender);
@@ -243,7 +240,10 @@ contract FlightSuretyApp {
         } else {
             // insuree doesnt exist create insuree and save data
             flightSuretyData.buyInsuranceAndCreateInsuree.value(msg.value)(flightKey, airlineAddress, msg.sender);
-        }
+        }   
+
+        success = true;
+        return success;
     }
 
 
@@ -281,25 +281,26 @@ contract FlightSuretyApp {
         require(checkIfAirlineIsRegistered(airlineAddress), "Airline is not registered");
 
         bytes32 flightKey = getFlightKey(airlineAddress, flight, timestamp);
-        Flight flightInfo = flights[flightKey];
+     
         // update flight 
-        flightInfo.statusCode = statusCode;
+        flights[flightKey].statusCode = statusCode;
 
         if(statusCode == STATUS_CODE_LATE_AIRLINE){
             // It's the airlines fault so provide insurance payout.
             // update insurees and airline with new account balances
-            address[] memory arrayOfInsurees = flightInfo.insurees;
-            require(!flightInfo.hasPaidInsurance, "The insurance for this flight has already been paid out");
+            address[] memory arrayOfInsurees = flights[flightKey].insurees;
+            require(flights[flightKey].hasPaidInsurance == false, "The insurance for this flight has already been paid out");
 
             // loop through insurees and pay them
             for(uint c=0; c<arrayOfInsurees.length; c++) {
                 // call to credit insuree for each address in array.
                 flightSuretyData.creditInsuree(flightKey, airlineAddress, arrayOfInsurees[c]);
+                emit InsurancePaidToPassenger(airlineAddress, flight, statusCode, arrayOfInsurees[c]);
             }
 
-            flightInfo.hasPaidInsurance = true;
+            flights[flightKey].hasPaidInsurance = true;
             // maybe emit an event detailing that there has been an insurance payout and user should check their account.
-            emit InsurancePayoutAirlineAtFault(airlineAddress, flight, timestamp, statusCode);
+            emit InsurancePayoutAirlineAtFault(airlineAddress, flight, timestamp, statusCode, arrayOfInsurees.length);
         } 
     }
 

@@ -8,11 +8,14 @@ const app = express();
 (async () => {
   // Prepare params
   let config = Config["localhost"];
+
   let web3 = new Web3(
-    new Web3.providers.WebsocketProvider(config.url.replace("http", "ws"))
+    new Web3.providers.WebsocketProvider(
+      config.url.replace("http", "ws").replace("localhost", "127.0.0.1")
+    )
   );
 
-  const ORACLE_AMOUNT = 5;
+  const ORACLE_AMOUNT = 20;
 
   // Get Accounts from Ganache
   let accounts = await web3.eth.getAccounts();
@@ -36,8 +39,6 @@ const app = express();
   let oracleData = {};
   let oracleAccount;
   let indexes;
-  let isRegistred;
-  let isRegistredOracle;
 
   console.log("oracleRegistrationfee " + oracleRegistrationfee);
 
@@ -48,66 +49,27 @@ const app = express();
     // Register
     console.log("Register Oracle " + oracleAccount + "...");
 
-    isRegistredOracle = await flightSuretyApp.methods
-      .isRegistredOracle()
+    await flightSuretyApp.methods.registerOracle().send({
+      from: oracleAccount,
+      value: oracleRegistrationfee,
+      gas: 6000000,
+    });
+    console.log("Oracle registred!");
+
+    // Get Oracle indexes and save them
+    indexes = await flightSuretyApp.methods
+      .getMyIndexes()
       .call({ from: oracleAccount });
-    const { 0: isRegistred, 1: indexes } = isRegistredOracle;
-
-    if (!isRegistred) {
-      await flightSuretyApp.methods.registerOracle().send({
-        from: oracleAccount,
-        value: oracleRegistrationfee,
-        gas: 6000000,
-      });
-      console.log("Oracle registred!");
-
-      // Get Oracle indexes and save them
-      indexes = await flightSuretyApp.methods
-        .getMyIndexes()
-        .call({ from: oracleAccount });
-      console.log(
-        "Oracle indexes: " + indexes[0] + ", " + indexes[1] + ", " + indexes[2]
-      );
-    }
+    console.log(
+      "Oracle indexes: " + indexes[0] + ", " + indexes[1] + ", " + indexes[2]
+    );
 
     // Save indexes
     oracleData[oracleAccount] = indexes;
   }
 
-  console.log(oracleData);
+  console.log("oracle data here - ", oracleData);
 
-  /**
-     *
-        {
-            logIndex: 0,
-            transactionIndex: 0,
-            transactionHash: '0xcf6950689551aa972e115014d98bd6622bc5474296d4034974b6ca2a5c33ec3e',
-            blockHash: '0x3a8e0c224f2e94c03fa61bbff2c5f7ce1103fff24ac4a734181e47504493034c',
-            blockNumber: 259,
-            address: '0x2fD01C35f961c0E833902B87790cda06E7F51448',
-            type: 'mined',
-            removed: false,
-            id: 'log_0xc8c519ec6316328ab58f60582fbc63e74beab35374133de90b6d64602f2c79cc',
-            returnValues: {
-                '0': 6,
-                '1': '0xf17f52151EbEF6C7334FAD080c5704D77216b732',
-                '2': 'TestFlight4',
-                '3': BigNumber { _hex: '0x622d3a8e' },
-                index: 6,
-                airline: '0xf17f52151EbEF6C7334FAD080c5704D77216b732',
-                flight: 'TestFlight4',
-                timestamp: BigNumber { _hex: '0x622d3a8e' }
-            },
-            event: 'OracleRequest',
-            signature: '0x3ed01f2c3fc24c6b329d931e35b03e390d23497d22b3f90e15b600343e93df11',
-            raw: {
-            data: '0x0000000000000000000000000000000000000000000000000000000000000006000000000000000000000000f17f52151ebef6c7334fad080c5704d77216b732000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000622d3a8e000000000000000000000000000000000000000000000000000000000000000b54657374466c6967687434',
-            topics: [
-              '0x3ed01f2c3fc24c6b329d931e35b03e390d23497d22b3f90e15b600343e93df11'
-            ]
-            }
-        }
-     */
   // Listening for Smart Contract requests
   flightSuretyApp.events.OracleRequest(
     {
@@ -154,15 +116,19 @@ const app = express();
             oracleIdx < oracleIndexes.length;
             oracleIdx++
           ) {
-            if (oracleIndexes[oracleIdx] === oracleIndex) {
+            console.log(
+              "logging out oracle indexes to see if they match - ",
+              oracleIndexes[oracleIdx]
+            );
+            if (parseInt(oracleIndexes[oracleIdx]) === oracleIndex) {
               // This oracle has the correct index so send status back
               // hardcoded status code
               statusCode = 20;
-
+              console.log("oracle index matches time to send flight status");
               // Send response to Smart Contract
               await flightSuretyApp.methods
                 .submitOracleResponse(
-                  oracleIndex,
+                  event.returnValues.index,
                   airlineAddress,
                   flight,
                   timestamp,
@@ -171,7 +137,7 @@ const app = express();
                 .send({ from: accounts[accountIndex], gas: 1000000 });
 
               console.log(
-                "SubmitOracleResponse sent from " +
+                "Submit Oracle Response sent from " +
                   checkOracleAccount +
                   " with data |" +
                   airlineAddress +

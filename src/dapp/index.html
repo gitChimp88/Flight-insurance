@@ -33,7 +33,7 @@
     <main class="container">
       <div id="display-wrapper" class="top-20"></div>
       <div class="row top-20">
-        <label class="form">Select flight to insure</label>
+        <label class="form">Select one of your flights to insure</label>
         <select name="flights" id="list-of-flights">
           <option value="V239">V239</option>
           <option value="D898">D898</option>
@@ -47,12 +47,24 @@
               Flight number:
               <span id="flight-details-number"></span>
             </p>
-            <p id="airline-name">Airline: Easy jet</p>
-            <p id="departure-time">departure time: 10:00</p>
-            <p id="arrival-time">arrival time: 18:00</p>
+            <p id="airline-name">
+              Airline:
+              <span id="flight-details-airline"></span>
+            </p>
+            <p id="departure-time">
+              departure time:
+              <span id="flight-details-departure"></span>
+            </p>
+            <p id="arrival-time">
+              arrival time:
+              <span id="flight-details-arrival"></span>
+            </p>
           </div>
         </div>
       </div>
+      <btn class="btn btn-primary" id="buy-insurance-button">
+        Buy insurance
+      </btn>
     </main>
 
     <main class="container">
